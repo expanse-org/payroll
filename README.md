@@ -9,7 +9,7 @@ PAY ROLL DAPP
 
 # Payroll Contract ABI
 
-``
+`
 [
 	{
 		"constant": true,
@@ -649,7 +649,7 @@ PAY ROLL DAPP
 	}
 ]
 
-``
+`
 
 # How To Setup Payroll Contracts
 - [ ] Launch payroll contract with price oracle
