@@ -4,8 +4,15 @@ import "./PriceOracle.sol";
 import "./Moderated.sol";
 
 contract PayRoll is Moderated {
+
   event PayedEmployee(address indexed Employee, uint Rate);
+  event Withdraws(address indexed Employee, uint Amount);
+  event NewEmployee(address indexed Employee, bool isEXP, bool isDepartment, bytes16 Name, uint Payrate);
+  event RemovedEmployee(address indexed Employee, bytes16 Name, address Admin);
+
   PriceOracle public prices;
+
+  bytes16 public Department;
 
   uint public totalUSDPay;
   uint public totalEXPPay;
@@ -15,6 +22,7 @@ contract PayRoll is Moderated {
 
 
   struct Employee {
+    bool isDepartment;
     bool isActive;
     bool isEXP;
     uint payRate;
@@ -31,7 +39,7 @@ contract PayRoll is Moderated {
     prices = PriceOracle(0xb385fa580fc98c0291d40f3960bea4f36b404976);
 
     setAdmin(0x6a620a92Ec2D11a70428b45a795909bd28AedA45, true);
-    addEmployee(0x3fc964747ece2cfdc2e902f783205b15e9f8ae10, 10, true, "test");
+    addEmployee(0x3fc964747ece2cfdc2e902f783205b15e9f8ae10, 10, true, "test", false);
     setExpHardCap(5000);
 
   }
@@ -46,6 +54,19 @@ contract PayRoll is Moderated {
       require(amount <= this.balance);
       balances[msg.sender]=0;
       if(!msg.sender.send(amount)){ revert("send failed");}
+
+      emit Withdraws(msg.sender, amount);
+  }
+
+  function forceWithdraw(address _e) public onlyRootOrAdmin {
+
+      uint amount = balances[_e];
+      require(amount <= this.balance);
+      balances[_e] = 0;
+      if(!_e.send(amount)){ revert();}
+
+      emit Withdraws(_e, amount);
+
   }
 
   function forceWithdrawAll() public onlyRootOrAdmin {
@@ -54,10 +75,12 @@ contract PayRoll is Moderated {
       require(amount <= this.balance);
       balances[employees[i]] = 0;
       if(!employees[i].send(amount)){ revert();}
+
+      emit Withdraws(employees[i], amount);
     }
   }
 
-  function addEmployee(address _e, uint _payRate, bool _isEXP, bytes16 _name) public onlyRootOrAdmin returns(bool){
+  function addEmployee(address _e, uint _payRate, bool _isEXP, bytes16 _name, bool _isDepartment) public onlyRootOrAdmin returns(bool){
 
     for (uint i = 0; i < employees.length; i++){
       if(employees[i] == _e){revert("Already Exist in List");}
@@ -71,6 +94,14 @@ contract PayRoll is Moderated {
     emps[_e].name = _name;
 
     names[_name] = _e;
+
+    if(_isEXP){
+      totalEXPPay+=_payRate;
+    }else{
+      totalUSDPay+=_payRate;
+    }
+
+    emit NewEmployee(_e, _isEXP, _isDepartment, _name, _payRate);
 
     return true;
   }
@@ -93,6 +124,15 @@ contract PayRoll is Moderated {
         employees.length--;
     }
 
+    if(emps[_e].isEXP){
+      totalEXPPay-=emps[_e].payRate;
+    }else{
+      totalUSDPay-=emps[_e].payRate;
+    }
+
+    emit RemovedEmployee(_e, emps[_e].name, msg.sender);
+    setEmployee(_e, false, false, false, 0);
+
     return true;
 
   }
@@ -107,44 +147,6 @@ contract PayRoll is Moderated {
         return employees;
   }
 
-  function calcTotalPay() public returns(uint, uint) {
-    uint usdTotal;
-    uint expTotal;
-
-    for (uint i = 0; i < employees.length; i++){
-        if(emps[employees[i]].isEXP){
-            expTotal+=emps[employees[i]].payRate;
-        }else{
-            usdTotal+=emps[employees[i]].payRate;
-        }
-
-    }
-
-    totalUSDPay = usdTotal;
-    uint USD = totalUSDPay;
-
-    totalEXPPay = calcEXP(totalUSDPay) + (expTotal * 1 ether);
-    uint EXP = totalEXPPay;
-
-    return (EXP, USD);
-
-  }
-
-  function getPrice() public view returns(uint) {
-      return prices.getPrice();
-  }
-
-  function calcEXP(uint _n) public view returns(uint) {
-    uint expPrice = (prices.getPrice() * 100) / 1 ether; // gives you usd price in pennies
-    uint usdToWei = _n * 1 ether;
-    uint pay = ((usdToWei * 100) / expPrice);
-
-    if(pay > expHardCap){
-      pay = expHardCap;
-    }
-    return pay;
-  }
-
   function payEmployee(address _e) public onlyRootOrAdmin {
     uint amount;
 
@@ -152,7 +154,7 @@ contract PayRoll is Moderated {
       if(emps[_e].isEXP){
         amount=emps[_e].payRate * 1 ether;
       }else{
-        amount=calcEXP(emps[_e].payRate);
+        amount=calcEXP(emps[_e].payRate, emps[_e].isDepartment);
       }
 
       balances[_e]+=amount;
@@ -171,14 +173,25 @@ contract PayRoll is Moderated {
     }
   }
 
-  function setEmployee(address _e, bool _isActive, bool _isEXP, uint _payRate) public onlyRootOrAdmin {
+  function payDepartmentEmployees(address _department) public onlyRootOrAdmin {
+    Payroll(_department).payEmployees();
+  }
+
+  /*---------------------- SETS ------------------------------*/
+
+  function setEmployee(address _e, bool _isActive, bool _isDepartment, bool _isEXP, uint _payRate) public onlyRootOrAdmin {
     emps[_e].isActive = _isActive;
+    emps[_e].isDepartment = _isDepartment;
     emps[_e].isEXP = _isEXP;
     emps[_e].payRate = _payRate;
   }
 
   function setIsActive(address _e, bool _isActive) public onlyRootOrAdmin {
     emps[_e].isActive = _isActive;
+  }
+
+  function setIsDepartment(address _e, bool _isDepartment) public onlyRootOrAdmin {
+    emps[_e].isDepartment = _isDepartment;
   }
 
   function setIsEXP(address _e, bool _isEXP) public onlyRootOrAdmin {
@@ -193,20 +206,16 @@ contract PayRoll is Moderated {
       emps[_e].nextPay = _nextPay;
   }
 
-  function getEmployee(address _e) public view returns(bool isActive, bool isEXP, uint payRate, uint expBalance, uint expPayRate, bytes16 name, uint nextPay) {
-    isActive = emps[_e].isActive;
-    isEXP = emps[_e].isEXP;
-    payRate = emps[_e].payRate;
-    expBalance = balances[_e];
-    name = emps[_e].name;
-    nextPay = emps[_e].nextPay;
+  function setExpPrices(address _prices) public onlyRootOrAdmin {
+      prices = PriceOracle(_prices);
+  }
 
-    if(isEXP){
-        expPayRate = payRate;
-    }else{
-        expPayRate = calcEXP(payRate);
-    }
+  function setExpHardCap(uint _expHardCap) public onlyRootOrAdmin {
+      expHardCap = _expHardCap * 1 ether;
+  }
 
+  function setDepartment(bytes16 _department) public onlyRootOrAdmin {
+    Department = _department;
   }
 
   function transferEmployeeAcct(address _oldAcct, address _newAccount) public onlyRootOrAdmin returns(bool){
@@ -224,17 +233,59 @@ contract PayRoll is Moderated {
     return true;
   }
 
-  function setPrices(address _prices) public onlyRootOrAdmin {
-
-      prices = PriceOracle(_prices);
-
+  function setAllNextPay(uint _timestamp) public onlyRootOrAdmin {
+    for (uint i = 0; i < employees.length; i++){
+      setNextPay(employees[i], _timestamp);
+    }
   }
 
-  function setExpHardCap(uint _expHardCap) public onlyRootOrAdmin {
-      expHardCap = _expHardCap * 1 ether;
+  function setAllBonus(uint _bonus) public onlyRootOrAdmin {
+    for (uint i = 0; i < employees.length; i++){
+      balances[employees[i]]+=calcEXP(_bonus, false);
+    }
   }
 
-  function employeeLookUp(bytes16 _name) public view returns(address){
+  /*---------------------- GETS ------------------------------*/
+
+  function calcEXP(uint _n, bool _exempt) public view returns(uint) {
+    uint expPrice = (prices.getPrice() * 100) / 1 ether; // gives you usd price in pennies
+    uint usdToWei = _n * 1 ether;
+    uint pay = ((usdToWei * 100) / expPrice);
+
+    if(pay > expHardCap && _exempt == false){
+      pay = expHardCap;
+    }
+    return pay;
+  }
+
+  function lookupArrayIndex(uint _index) public view returns(address) {
+    return employees[index];
+  }
+
+  function getArrayLength() public view returns(uint) {
+    return employees.length;
+  }
+
+  function getEmployee(address _e) public view returns(bool isActive, bool isEXP, uint payRate, uint expBalance, uint expPayRate, bytes16 name, uint nextPay) {
+    isActive = emps[_e].isActive;
+    isEXP = emps[_e].isEXP;
+    payRate = emps[_e].payRate;
+    expBalance = balances[_e];
+    name = emps[_e].name;
+    nextPay = emps[_e].nextPay;
+
+    if(isEXP){
+        expPayRate = payRate;
+    }else{
+        expPayRate = calcEXP(payRate, emps[_e].isDepartment);
+    }
+  }
+
+  function getExpPrice() public view returns(uint) {
+      return prices.getPrice();
+  }
+
+  function employeeLookUpByName(bytes16 _name) public view returns(address){
     return names[_name];
   }
 

@@ -4,6 +4,7 @@ contract Moderated {
   address public root;
 
   mapping(address=>bool) public admins;
+  mapping(address=>bool) public modules;
 
   modifier onlyRoot(){
     if(root == msg.sender){ _ ;} else { revert(); }
@@ -15,6 +16,10 @@ contract Moderated {
 
   function setAdmin(address _acct, bool _set) public onlyRoot {
     admins[_acct] = _set;
+  }
+
+  function setModule(address _acct, bool _set) public onlyRoot {
+    modules[_acct] = _set;
   }
 
   function empty(address _sendTo) public onlyRoot { if(!_sendTo.send(address(this).balance)) revert(); }
